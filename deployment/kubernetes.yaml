@@ -1,0 +1,203 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zehraguard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zehraguard-core
+  namespace: zehraguard
+  labels:
+    app: zehraguard-core
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: zehraguard-core
+  template:
+    metadata:
+      labels:
+        app: zehraguard-core
+    spec:
+      containers:
+      - name: zehraguard-core
+        image: zehraguard/core:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: POSTGRES_HOST
+          value: "postgres-service"
+        - name: POSTGRES_DB
+          value: "zehraguard"
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: password
+        - name: INFLUXDB_URL
+          value: "http://influxdb-service:8086"
+        - name: INFLUXDB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: influxdb-secret
+              key: token
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: RABBITMQ_USER
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: username
+        - name: RABBITMQ_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: password
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: models-volume
+          mountPath: /app/models
+        - name: logs-volume
+          mountPath: /app/logs
+      volumes:
+      - name: models-volume
+        persistentVolumeClaim:
+          claimName: models-pvc
+      - name: logs-volume
+        persistentVolumeClaim:
+          claimName: logs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zehraguard-core-service
+  namespace: zehraguard
+spec:
+  selector:
+    app: zehraguard-core
+  ports:
+  - protocol: TCP
+    port: 8000
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: zehraguard-ingress
+  namespace: zehraguard
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - zehraguard.yourdomain.com
+    secretName: zehraguard-tls
+  rules:
+  - host: zehraguard.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: zehraguard-core-service
+            port:
+              number: 8000
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models-pvc
+  namespace: zehraguard
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: logs-pvc
+  namespace: zehraguard
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: zehraguard
+type: Opaque
+data:
+  username: emVocmFndWFyZA== # zehraguard
+  password: c2VjdXJlX3Bhc3N3b3JkXzEyMw== # secure_password_123
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-secret
+  namespace: zehraguard
+type: Opaque
+data:
+  password: cmVkaXNfcGFzc3dvcmRfMTIz # redis_password_123
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: influxdb-secret
+  namespace: zehraguard
+type: Opaque
+data:
+  token: emVocmFndWFyZC1zdXBlci1zZWNyZXQtYXV0aC10b2tlbg== # zehraguard-super-secret-auth-token
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-secret
+  namespace: zehraguard
+type: Opaque
+data:
+  username: emVocmFndWFyZA== # zehraguard
+  password: cmFiYml0bXFfcGFzc3dvcmRfMTIz # rabbitmq_password_123

@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: zehraguard-ingress
+  namespace: zehraguard
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  tls:
+  - hosts:
+    - zehraguard.yourdomain.com
+    secretName: zehraguard-tls
+  rules:
+  - host: zehraguard.yourdomain.com
+    http:
+      paths:
+      - path: /api(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: zehraguard-core-service
+            port:
+              number: 8000
+      - path: /ws(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: zehraguard-core-service
+            port:
+              number: 8000
+      - path: /()(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: zehraguard-dashboard-service
+            port:
+              number: 80

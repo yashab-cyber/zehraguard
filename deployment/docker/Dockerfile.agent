@@ -1,0 +1,54 @@
+# ZehraGuard Behavioral Agent Production Dockerfile
+FROM golang:1.21-alpine AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files
+COPY agents/go.mod agents/go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY agents/ .
+
+# Build binary
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o behavioral_agent collectors/behavioral_agent.go
+
+# Production stage
+FROM alpine:latest
+
+# Install ca-certificates for HTTPS
+RUN apk --no-cache add ca-certificates curl
+
+# Create app user
+RUN addgroup -g 1001 agent && adduser -u 1001 -G agent -s /bin/sh -D agent
+
+# Set working directory
+WORKDIR /home/agent/
+
+# Copy binary from builder stage
+COPY --from=builder /app/behavioral_agent .
+
+# Create config directory
+RUN mkdir -p /etc/zehraguard
+
+# Copy default configuration
+COPY agents/config/agent.conf /etc/zehraguard/
+
+# Change ownership
+RUN chown -R agent:agent /home/agent /etc/zehraguard
+
+# Switch to app user
+USER agent
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD pgrep behavioral_agent || exit 1
+
+# Expose port for agent communication
+EXPOSE 8080
+
+# Start agent
+CMD ["./behavioral_agent"]
